@@ -23,6 +23,7 @@ ControlNode::ControlNode(): Node("control"), control_(robot::ControlCore(this->g
 
   control_.initControlCore(lookahead_distance_, max_steering_angle_, steering_gain_, linear_velocity_);
 }
+
 void ControlNode::processParameters() {
   // Declare all ROS2 Parameters
   this->declare_parameter<std::string>("path_topic", "/path");
@@ -55,6 +56,7 @@ void ControlNode::odomCallback(const nav_msgs::msg::Odometry::SharedPtr msg)
   robot_x_ = msg->pose.pose.position.x;
   robot_y_ = msg->pose.pose.position.y;
 
+  // Get robot's orientation (yaw) from quaternion using utility function
   robot_theta_ = quaternionToYaw(
     msg->pose.pose.orientation.x,
     msg->pose.pose.orientation.y,
@@ -82,7 +84,8 @@ void ControlNode::timerCallback()
 
 double ControlNode::quaternionToYaw(double x, double y, double z, double w)
 {
-  tf2::Quaternion q(x, y, z, w);
+    // Using tf2 to convert to RPY
+    tf2::Quaternion q(x, y, z, w);
     tf2::Matrix3x3 m(q);
     double roll, pitch, yaw;
     m.getRPY(roll, pitch, yaw);

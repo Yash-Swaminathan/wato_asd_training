@@ -10,11 +10,11 @@ namespace robot
 
 class ControlCore {
   public:
-    // Constructor, we pass in the node's RCLCPP logger to enable logging to terminal
     ControlCore(const rclcpp::Logger& logger);
+
     void initControlCore(
       double lookahead_distance,
-      double max_steering_angle,
+      double max_steering_angle, 
       double steering_gain,
       double linear_velocity
     );
@@ -26,10 +26,11 @@ class ControlCore {
     unsigned int findLookaheadPoint(double robot_x, double robot_y, double robot_theta);
 
     geometry_msgs::msg::Twist calculateControlCommand(double robot_x, double robot_y, double robot_theta);
-
+  
   private:
     nav_msgs::msg::Path path_;
     rclcpp::Logger logger_;
+
     double lookahead_distance_;
     double max_steering_angle_;
     double steering_gain_;
@@ -37,5 +38,4 @@ class ControlCore {
 };
 
 } 
-
-#endif 
+#endif  // CONTROL_CORE_HPP_
