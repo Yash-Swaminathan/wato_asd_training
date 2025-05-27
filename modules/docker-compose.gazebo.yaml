@@ -12,7 +12,7 @@ services:
     ipc: host
     tty: true
     ports:
-      - "${GAZEBO_PORT:?}:8080"
+      - "${GAZEBO_PORT:?}:9002"
     profiles: [deploy, develop]
     command: /bin/bash -c "ros2 launch gazebo sim.launch.py"
     volumes:
