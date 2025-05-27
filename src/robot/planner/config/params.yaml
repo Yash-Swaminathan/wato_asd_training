@@ -1,3 +1,11 @@
-# planner_node:
-#   ros__parameters:
-    
+planner_node:
+ros__parameters:
+map_topic: "/map"
+goal_topic: "/goal_point"
+odom_topic: "/odom/filtered"
+path_topic: "/path"
+smoothing_factor: 0.2
+iterations: 20
+goal_tolerance: 0.3
+plan_timeout_seconds: 10.0
+
