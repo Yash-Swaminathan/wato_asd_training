@@ -8,15 +8,15 @@
 
 namespace robot {
 
-class MapMemory {
+class MapMemoryCore {
 public:
-    MapMemory(const rclcpp::Logger& logger);
+    MapMemoryCore(const rclcpp::Logger& logger);
 
     void initializeMap(double resolution, int width, int height, const geometry_msgs::msg::Pose& origin);
 
     // Method to integrate the local map based on the robot's movement
     void integrateLocalMap(const nav_msgs::msg::OccupancyGrid::SharedPtr& local_map,
-        double robot_x, double robot_y, double robot_theta);
+                            double robot_x, double robot_y, double robot_theta);
 
     nav_msgs::msg::OccupancyGrid::SharedPtr getGlobalMap() const;
 
@@ -27,19 +27,17 @@ private:
     nav_msgs::msg::OccupancyGrid::SharedPtr global_map_;
     std::vector<bool> updated_cells_;
 
-    // Track robot last pos
+    // Track the robot's last position
     double last_robot_x_;
     double last_robot_y_;
 
-     // Distance computation
+    // The threshold for updating the map (5 meters)
+    double move_threshold_;
+
+    // Helper method to compute the distance between two points
     double computeDistance(double x1, double y1, double x2, double y2) const;
 };
 
-    // updating map distance (5)
-    double move_threshold_;
-
-   
-
-}
+}  // namespace robot
 
 #endif  // MAP_MEMORY_CORE_HPP
