@@ -1,95 +1,114 @@
 #include "costmap_core.hpp"
+#include "sensor_msgs/msg/laser_scan.hpp"
 
-namespace robot {
+CostmapCore::CostmapCore(){}
 
-CostmapCore::CostmapCore(const rclcpp::Logger& logger, rclcpp::Node* node)
-  : logger_(logger)
-{
-  // Load parameters
-  resolution_ = node->declare_parameter("resolution", 0.1);
-  int width_m = node->declare_parameter("width", 10);
-  int height_m = node->declare_parameter("height", 10);
-  inflation_radius_ = node->declare_parameter("inflation_radius", 1.5);
-  max_cost_ = node->declare_parameter("max_cost", 100);
+void CostmapCore::initializeCostmap() {
+    costmap_.clear();
+    costmap_.resize(costmap_height_, std::vector<int>(costmap_width_, 0));
+}
+void CostmapCore::transformToChassisFrame(double &x, double &y) {
 
-  // Compute map dimensions
-  width_   = static_cast<int>(width_m / resolution_);
-  height_  = static_cast<int>(height_m / resolution_);
-  origin_x_= -width_m / 2.0;
-  origin_y_= -height_m / 2.0;
+    double robot_x = 0.0; 
+    double robot_y = 0.0; 
+    double robot_theta = 0.0; 
 
-  // Initialize occupancy grid
-  grid_.info.resolution = resolution_;
-  grid_.info.width = width_;
-  grid_.info.height = height_;
-  grid_.info.origin.position.x = origin_x_;
-  grid_.info.origin.position.y = origin_y_;
-  grid_.info.origin.orientation.w = 1.0;
-  grid_.data.assign(width_ * height_, 0);
+
+    x -= robot_x;
+    y -= robot_y;
+
+    double cos_theta = cos(robot_theta);
+    double sin_theta = sin(robot_theta);
+
+    double x_new = x * cos_theta + y * sin_theta;
+    double y_new = -x * sin_theta + y * cos_theta;
+
+    x = x_new;
+    y = y_new;
 }
 
-void CostmapCore::resetMap()
-{
-  std::fill(grid_.data.begin(), grid_.data.end(), 0);
+// convert to grid coordinates, takes in the range and angle and returns x and y coordinates in the cartesian plane
+void CostmapCore::convertToGrid(double range, double angle, int &x_grid, int &y_grid) {
+    
+    double x = range * cos(angle);
+    double y = range * sin(angle);
+
+    transformToChassisFrame(x, y);
+    //subtract the origin; allows x and y polar coordinates to now be relative to the grid
+    x_grid = (x - origin_x_ )/ resolution_;
+    y_grid = (y - origin_y_ )/ resolution_;
 }
 
-void CostmapCore::markCell(int x, int y)
-{
-  if (x < 0 || y < 0 || x >= width_ || y >= height_) return;
-  grid_.data[y * width_ + x] = max_cost_;
-}
-
-void CostmapCore::processScan(const sensor_msgs::msg::LaserScan::SharedPtr& scan)
-{
-  resetMap();
-  double angle = scan->angle_min;
-  for (auto range : scan->ranges) {
-    if (std::isfinite(range)) {
-      double x = range * std::cos(angle);
-      double y = range * std::sin(angle);
-      int ix = static_cast<int>((x - origin_x_) / resolution_);
-      int iy = static_cast<int>((y - origin_y_) / resolution_);
-      markCell(ix, iy);
+void CostmapCore::markObstacle(int x_grid, int y_grid) {
+    //check if the cell is empty or not in both the x and y direction
+    //if not empty, mark as occupied
+    if (x_grid >= 0 && x_grid < costmap_width_ && y_grid >= 0 && y_grid < costmap_height_) {
+        costmap_[y_grid][x_grid] = 100;  // mark as occupied w value 100 in the costmap 2d array
     }
-    angle += scan->angle_increment;
-  }
-  inflateObstacles();
 }
 
-void CostmapCore::inflateObstacles()
-{
-  std::vector<int> temp = grid_.data;
-  int rad_cells = static_cast<int>(inflation_radius_ / resolution_);
+void CostmapCore::inflateObstacles() {
+    int max_cost = 100;     
+    // loop each cell
+    for (int y = 0; y < costmap_height_; ++y) {
+        for (int x = 0; x < costmap_width_; ++x) {
+            if (costmap_[y][x] == max_cost) {
+                for (int dy = -inflation_radius_; dy <= inflation_radius_; ++dy) {
+                    for (int dx = -inflation_radius_; dx <= inflation_radius_; ++dx) {
+                        // euclidean distance
+                        double dist = std::sqrt(dx * dx + dy * dy);
 
-  for (int y = 0; y < height_; ++y) {
-    for (int x = 0; x < width_; ++x) {
-      if (grid_.data[y * width_ + x] == max_cost_) {
-        for (int dy = -rad_cells; dy <= rad_cells; ++dy) {
-          for (int dx = -rad_cells; dx <= rad_cells; ++dx) {
-            int nx = x + dx;
-            int ny = y + dy;
-            if (nx < 0 || ny < 0 || nx >= width_ || ny >= height_) continue;
-            double d = std::hypot(dx, dy) * resolution_;
-            if (d <= inflation_radius_) {
-              int cost = static_cast<int>(max_cost_ * (1.0 - d / inflation_radius_));
-              int idx  = ny * width_ + nx;
-              temp[idx] = std::max(temp[idx], cost);
+                        if (dist <= inflation_radius_) {
+                            int inflate_x = x + dx;
+                            int inflate_y = y + dy;
+
+                            // ensure the cell is within bounds
+                            if (inflate_x >= 0 && inflate_x < costmap_width_ && inflate_y >= 0 && inflate_y < costmap_height_) {
+                                // Calculate inflated cost
+                                int inflated_cost = max_cost * (1.0 - (dist / inflation_radius_));
+
+                                // Update the costmap with the inflated cost, clamping to the maximum value
+                                costmap_[inflate_y][inflate_x] = std::max(costmap_[inflate_y][inflate_x], inflated_cost);
+                            }
+                        }
+                    }
+                }
             }
-          }
         }
-      }
     }
-  }
-
-  grid_.data.swap(temp);
 }
 
-nav_msgs::msg::OccupancyGrid CostmapCore::getGrid(rclcpp::Time stamp, const std::string& frame) const
-{
-  auto out = grid_;
-  out.header.stamp    = stamp;
-  out.header.frame_id = frame;
-  return out;
+
+void CostmapCore::publishCostmap(
+    rclcpp::Publisher<nav_msgs::msg::OccupancyGrid>::SharedPtr costmap_pub_,
+    const sensor_msgs::msg::LaserScan::SharedPtr& laser_scan_msg) {
+
+    auto occupancy_grid_msg = nav_msgs::msg::OccupancyGrid();
+
+    // Set header information
+    occupancy_grid_msg.header.stamp = rclcpp::Clock().now();
+    occupancy_grid_msg.header = laser_scan_msg->header; 
+
+    occupancy_grid_msg.info.resolution = resolution_;
+    occupancy_grid_msg.info.width = costmap_width_;
+    occupancy_grid_msg.info.height = costmap_height_;
+
+    occupancy_grid_msg.info.origin.position.x = origin_x_;
+    occupancy_grid_msg.info.origin.position.y = origin_y_;
+
+    occupancy_grid_msg.info.origin.orientation.x = 0.0;
+    occupancy_grid_msg.info.origin.orientation.y = 0.0;
+    occupancy_grid_msg.info.origin.orientation.z = 0.0;
+    occupancy_grid_msg.info.origin.orientation.w = 1.0;
+
+    occupancy_grid_msg.data.resize(costmap_width_ * costmap_height_);
+    
+    // Flatten the array to fill the costmap data
+    for (int y = 0; y < costmap_height_; ++y) {
+        for (int x = 0; x < costmap_width_; ++x) {
+            occupancy_grid_msg.data[y * costmap_width_ + x] = costmap_[y][x];
+        }
+    }
+    costmap_pub_->publish(occupancy_grid_msg);
 }
 
-} 
